@@ -1,0 +1,117 @@
+import librosa
+import numpy as np
+import json
+import os
+import tensorflow as tf
+
+# --- Configuration (Must match genre_classifier.py) ---
+SAMPLE_RATE = 22050
+DURATION = 30 # seconds (used for segmenting new files)
+SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
+N_MFCC = 13 
+N_FTT = 2048 
+HOP_LENGTH = 512 
+NUM_SEGMENTS = 10 # Must match the number of segments used for training
+
+MODEL_PATH = "genre_cnn_model.h5"
+MAPPING_PATH = "data_mfcc.json"
+
+# --- Utility Functions ---
+
+def load_data_mapping(json_path):
+    """Loads the genre mapping (list of genre names) from the JSON file."""
+    try:
+        with open(json_path, "r") as fp:
+            data = json.load(fp)
+            return data["mapping"]
+    except FileNotFoundError:
+        print(f"Error: Mapping file not found at {json_path}. Ensure extraction was successful.")
+        return None
+
+def preprocess(audio_file_path, num_mfcc=N_MFCC, n_fft=N_FTT, hop_length=HOP_LENGTH):
+    """
+    Extracts MFCCs from a single audio file, segmenting it the same way 
+    the training data was handled.
+    """
+    try:
+        signal, sr = librosa.load(audio_file_path, sr=SAMPLE_RATE)
+    except Exception as e:
+        print(f"Error loading audio file: {e}")
+        return None
+    
+    # Calculate expected number of samples per segment based on training
+    segment_samples = int(SAMPLES_PER_TRACK / NUM_SEGMENTS)
+    
+    # We will use the first segment for prediction as a representative sample
+    # For robust prediction, one might average predictions over all segments.
+    start_sample = 0
+    end_sample = segment_samples
+
+    # 1. Extract MFCCs for the chosen segment
+    mfcc = librosa.feature.mfcc(
+        y=signal[start_sample:end_sample],
+        sr=sr,
+        n_mfcc=num_mfcc,
+        n_fft=n_fft,
+        hop_length=hop_length
+    )
+    mfcc = mfcc.T # Transpose to get (num_frames, n_mfcc)
+    
+    # 2. Reshape to add the single channel dimension for CNN: (frames, n_mfcc, 1)
+    # The model expects a 4D tensor (batch_size, frames, n_mfcc, 1)
+    mfcc = mfcc[np.newaxis, ..., np.newaxis]
+    
+    return mfcc
+
+def predict(model, mfcc_features, mapping):
+    """Makes a prediction for the MFCC features."""
+    
+    # Get the model prediction (probability distribution)
+    probabilities = model.predict(mfcc_features)[0]
+    
+    # Get the index of the highest probability
+    predicted_index = np.argmax(probabilities)
+    
+    # Get the genre name and confidence
+    predicted_genre = mapping[predicted_index]
+    confidence = probabilities[predicted_index] * 100
+    
+    return predicted_genre, confidence
+
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    
+    # --- IMPORTANT: Get a sample audio file path ---
+    # Change this path to point to a new WAV file you want to test.
+    # We'll use one of the files from the training set for a quick demo, 
+    # but for a real test, use an audio file the model has never seen!
+    TEST_AUDIO_FILE = "test_audio/sample-15s.wav" 
+    
+    # 1. Load the Model and Mapping
+    print("--- Loading Trained Model and Genre Mapping ---")
+    
+    # Use legacy HDF5 loading for compatibility
+    model = tf.keras.models.load_model(MODEL_PATH) 
+    genre_mapping = load_data_mapping(MAPPING_PATH)
+
+    if not genre_mapping:
+        print("Prediction aborted due to missing mapping file.")
+    else:
+        # 2. Preprocess the New Audio File
+        print(f"Pre-processing audio file: {TEST_AUDIO_FILE}")
+        mfcc_features = preprocess(TEST_AUDIO_FILE)
+        
+        if mfcc_features is not None:
+            # 3. Make Prediction
+            predicted_genre, confidence = predict(model, mfcc_features, genre_mapping)
+            
+            # 4. Display Results
+            print("\n===================================")
+            print("       CLASSIFICATION RESULT")
+            print("===================================")
+            print(f"File Classified: {os.path.basename(TEST_AUDIO_FILE)}")
+            print(f"Predicted Genre: {predicted_genre}")
+            print(f"Confidence:      {confidence:.2f}%")
+            print("===================================")
+
