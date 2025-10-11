@@ -1,0 +1,38 @@
+📦 GTZAN Dataset Setup Guide
+This project relies on the GTZAN Genre Collection, a standard dataset for music information retrieval research. Due to its size (approx. 1 GB) and licensing, the raw audio data is not included in this repository.
+
+Follow these steps to successfully set up your data directory and run the feature extraction process.
+
+1. Data Acquisition
+Download the Dataset: Search for "GTZAN Dataset - Music Genre Classification" on a platform like Kaggle or the original hosting site. Download the archive containing the audio files.
+
+Unpack: Extract the downloaded file. You should find a main folder, typically named genres_original/, which contains 10 subfolders (e.g., blues/, classical/, disco/).
+
+2. Directory Structure
+You must place the extracted data so that it matches the path expected by the genre_classifier.py script.
+
+Create a Folder: In the root of this project (AI-Powered-Music-Genre-Classifier/), create a new directory named data/.
+
+Place the Files: Move the entire genres_original folder you downloaded into this new data/ directory.
+
+Final Required Structure
+Your project folder should look like this:
+
+AI-Powered-Music-Genre-Classifier/
+├── genre_classifier.py
+├── predict.py
+├── data/
+│   └── genres_original/  <-- THIS FOLDER MUST CONTAIN ALL 10 GENRE FOLDERS
+│       ├── blues/
+│       ├── classical/
+│       └── ... (and the rest of the audio files)
+└── test_audio/
+
+3. Test Audio Setup (Optional)
+To test the final prediction script (predict.py), you need at least one unseen audio file.
+
+Place a 30-second music file (e.g., a .wav or .mp3) into the test_audio/ directory.
+
+Ensure you update the TEST_AUDIO_FILE variable in predict.py to point to the correct filename.
+
+Once this structure is set up, you can proceed directly to the Feature Extraction step by running the run_analysis.sh script (or python genre_classifier.py on Windows).
