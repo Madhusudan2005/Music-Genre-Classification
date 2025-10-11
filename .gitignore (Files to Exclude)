@@ -1,0 +1,36 @@
+--- Python Environment and Runtime ---
+Virtual environment folder
+venv/
+.venv/
+.mypy_cache/
+.pytest_cache/
+
+Bytecode
+pycache/
+*.pyc
+
+--- Operating System Files ---
+Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+Mac
+.DS_Store
+
+--- Project Specific Data/Cache ---
+1. Raw Audio Data (Too large for GitHub)
+data/
+test_audio/
+
+2. Extracted Features (Generated from raw data)
+data_mfcc.json
+
+3. Model Files (Can be large binaries)
+*.h5
+*.keras
+genre_cnn_model.h5
+
+4. Logs and temporary files
+*.log
+temp/
