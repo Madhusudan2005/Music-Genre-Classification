@@ -1,0 +1,1 @@
+These libraries are essential for running the audio feature extraction (librosa), handling numerical operations (numpy), building and training the deep learning model (tensorflow, keras), and managing the dataset (scikit-learn, json, os).
