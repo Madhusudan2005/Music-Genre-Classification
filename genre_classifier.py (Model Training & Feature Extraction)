@@ -1,0 +1,265 @@
+import librosa
+import numpy as np
+import os
+import json
+import matplotlib.pyplot as plt
+import librosa.display
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Conv2D, MaxPooling2D, Flatten
+from tensorflow.keras.utils import to_categorical
+
+# --- Configuration ---
+DATA_PATH = "data/genres_original" # Assumes GTZAN data is here
+JSON_PATH = "data_mfcc.json"
+SAMPLE_RATE = 22050
+DURATION = 30 # seconds (GTZAN standard)
+SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
+N_MFCC = 13 # Number of MFCC coefficients to extract
+N_FTT = 2048 # Number of frequency bins
+HOP_LENGTH = 512 # Number of samples between successive frames
+
+# --- Core Function 1: Feature Extraction ---
+
+def save_mfcc(data_path, json_path, n_mfcc=13, n_fft=2048, hop_length=512, num_segments=10):
+    """
+    Extracts MFCCs from music datasets and saves them into a JSON file.
+    
+    This function structures the 30-second tracks into smaller segments to create 
+    a larger, more balanced dataset for the CNN.
+    """
+    
+    # Dictionary to store data
+    data = {
+        "mapping": [],  # Genre names
+        "mfcc": [],     # MFCCs for each segment
+        "labels": []    # Genre label indices
+    }
+    
+    # Calculate segment length in samples
+    segment_samples = int(SAMPLES_PER_TRACK / num_segments)
+    
+    # Loop through all genre sub-directories
+    for i, (dirpath, dirnames, filenames) in enumerate(os.walk(data_path)):
+        
+        # Ensure we are currently on a genre sub-folder and not the root folder
+        if dirpath is not data_path:
+            
+            # Save genre label (e.g., 'blues', 'classical')
+            genre = os.path.basename(dirpath)
+            data["mapping"].append(genre)
+            print(f"Processing genre: {genre}")
+            
+            # Loop through all audio files for the current genre
+            for f in filenames:
+                if f.endswith('.wav'):
+                    file_path = os.path.join(dirpath, f)
+
+                    # 1. Load audio file
+                    try:
+                        signal, sr = librosa.load(file_path, sr=SAMPLE_RATE)
+                    except Exception as e:
+                        print(f"Error loading {file_path}: {e}")
+                        continue
+                    
+                    # 2. Process all segments
+                    for s in range(num_segments):
+                        start_sample = segment_samples * s
+                        end_sample = start_sample + segment_samples
+
+                        # Extract MFCCs for the segment
+                        mfcc = librosa.feature.mfcc(
+                            y=signal[start_sample:end_sample],
+                            sr=sr,
+                            n_mfcc=n_mfcc,
+                            n_fft=n_fft,
+                            hop_length=hop_length
+                        )
+                        mfcc = mfcc.T # Transpose to get (num_frames, n_mfcc)
+
+                        # Check if MFCC has the expected length (avoid corrupt files)
+                        # We are targeting segments of roughly 1290 frames (mfcc.shape[0] = 1290)
+                        if len(mfcc) == int(np.ceil(segment_samples / hop_length)):
+                            data["mfcc"].append(mfcc.tolist())
+                            data["labels"].append(i - 1) # -1 because the root folder is included in enumerate
+                            
+    # Save MFCCs to JSON file
+    with open(json_path, "w") as fp:
+        json.dump(data, fp, indent=4)
+        
+    print(f"MFCC data successfully saved to {json_path}")
+
+
+# --- Core Function 2: Build and Train CNN Model ---
+
+def prepare_datasets(test_size, validation_size, json_path):
+    """Loads data, splits it into training, validation, and test sets."""
+    
+    # Load data from JSON
+    with open(json_path, "r") as fp:
+        data = json.load(fp)
+
+    X = np.array(data["mfcc"])
+    y = np.array(data["labels"])
+    
+    # 1. Create train/test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size)
+    
+    # 2. Create train/validation split
+    X_train, X_validation, y_train, y_validation = train_test_split(X_train, y_train, test_size=validation_size)
+    
+    # 3. Add channel dimension for CNN (e.g., 4D array: # samples, width, height, channel)
+    X_train = X_train[..., np.newaxis]
+    X_validation = X_validation[..., np.newaxis]
+    X_test = X_test[..., np.newaxis]
+    
+    # 4. One-hot encode targets (e.g., 3 -> [0, 0, 0, 1, 0, 0, 0, 0, 0, 0])
+    y_train = to_categorical(y_train)
+    y_validation = to_categorical(y_validation)
+    y_test = to_categorical(y_test)
+    
+    return X_train, X_validation, X_test, y_train, y_validation, y_test, data["mapping"]
+
+
+def build_cnn(input_shape, num_genres):
+    """Creates the CNN model architecture using Keras."""
+    
+    # Simple Sequential Model
+    model = Sequential([
+        # 1st Convolutional Layer
+        Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
+        
+        # 2nd Convolutional Layer
+        Conv2D(64, (3, 3), activation='relu'),
+        MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
+        
+        # 3rd Convolutional Layer
+        Conv2D(128, (2, 2), activation='relu'),
+        MaxPooling2D((2, 2), strides=(2, 2), padding='same'),
+        
+        # Flatten the output for the Dense layers
+        Flatten(),
+        
+        # Dense layers
+        Dense(64, activation='relu'),
+        Dropout(0.3), # Dropout for regularization
+        
+        # Output layer (10 genres)
+        Dense(num_genres, activation='softmax')
+    ])
+    
+    return model
+
+
+def train_model(model, X_train, y_train, X_validation, y_validation, batch_size=32, epochs=30):
+    """Compiles and trains the Keras model."""
+    
+    model.compile(optimizer='adam', 
+                  loss='categorical_crossentropy', 
+                  metrics=['accuracy'])
+    
+    print("\n--- Training Model ---")
+    history = model.fit(X_train, y_train,
+                        validation_data=(X_validation, y_validation),
+                        batch_size=batch_size,
+                        epochs=epochs)
+    
+    return history
+
+
+def predict_genre(model, X_single, mapping):
+    """Makes a prediction for a single audio sample (MFCC segment)."""
+    
+    # The model expects a 4D array, so we need to expand dimensions
+    X_single = X_single[np.newaxis, ...] # Add batch dimension
+    
+    # Get the model prediction (probability distribution)
+    probabilities = model.predict(X_single)[0]
+    
+    # Get the index of the highest probability
+    predicted_index = np.argmax(probabilities)
+    
+    # Get the genre name and confidence
+    predicted_genre = mapping[predicted_index]
+    confidence = probabilities[predicted_index] * 100
+    
+    return predicted_genre, confidence
+
+
+# --- Utility Function 3: Visualizer (Optional Deliverable) ---
+
+def create_spectrogram(audio_file):
+    """Creates a Mel Spectrogram visualization of the audio file."""
+    
+    try:
+        y, sr = librosa.load(audio_file, sr=SAMPLE_RATE)
+        
+        # Create a Mel Spectrogram from the signal
+        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
+        S_dB = librosa.power_to_db(S, ref=np.max)
+        
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(S_dB, sr=sr, x_axis='time', y_axis='mel')
+        plt.colorbar(format='%+2.0f dB')
+        plt.title('Mel Spectrogram of Audio File')
+        plt.tight_layout()
+        plt.show()
+        
+    except Exception as e:
+        print(f"Error creating spectrogram: {e}")
+
+
+# --- Main Execution (SECOND RUN: TRAIN MODEL) ---
+if __name__ == "__main__":
+    
+    # --- Configuration ---
+    JSON_PATH = "data_mfcc.json"
+    TEST_SIZE = 0.2
+    VALIDATION_SIZE = 0.2
+    
+    # 1. Feature Extraction (COMMENTED OUT after first successful run)
+    # print("--- Starting MFCC Feature Extraction ---")
+    # save_mfcc(DATA_PATH, JSON_PATH, N_MFCC, N_FTT, HOP_LENGTH, num_segments=10)
+    # print("--- Feature Extraction Complete. JSON file created. ---")
+    
+    
+    # 2. Prepare Data and Model
+    print("--- Preparing Data Sets ---")
+    X_train, X_validation, X_test, y_train, y_validation, y_test, genre_mapping = \
+        prepare_datasets(TEST_SIZE, VALIDATION_SIZE, JSON_PATH)
+        
+    # Input shape is based on MFCC dimensions (frames, n_mfcc, 1 channel)
+    input_shape = (X_train.shape[1], X_train.shape[2], 1)
+    num_genres = len(genre_mapping)
+    
+    print(f"Total Genres: {num_genres}")
+    print(f"Input Shape (MFCC Frames, Coeffs): {input_shape}")
+    
+    # 3. Build and Train Model
+    model = build_cnn(input_shape, num_genres)
+    
+    # Training the model (this will take several minutes)
+    history = train_model(model, X_train, y_train, X_validation, y_validation, epochs=30)
+    
+    # 4. Evaluate Model
+    loss, accuracy = model.evaluate(X_test, y_test, verbose=2)
+    print(f"\n--- Model Performance ---\nTest Accuracy: {accuracy*100:.2f}%")
+    
+    # 5. Save the trained model for prediction script
+    MODEL_NAME = "genre_cnn_model.h5"
+    model.save(MODEL_NAME)
+    print(f"\nTrained model successfully saved as {MODEL_NAME}")
+    
+    # 6. Example Prediction (Use the first item in the test set)
+    X_single = X_test[10]
+    predicted_genre, confidence = predict_genre(model, X_single, genre_mapping)
+    
+    print("\n--- Example Prediction ---")
+    print(f"Sample's True Label (One-Hot Encoded): {y_test[10]}")
+    print(f"Predicted Genre: {predicted_genre}")
+    print(f"Confidence: {confidence:.2f}%")
+
+    # 7. Optional: Spectrogram Visualization 
+    # NOTE: To visualize, you must uncomment and update the path to a raw .wav file
+    # create_spectrogram("data/genres_original/blues/blues.00000.wav")
