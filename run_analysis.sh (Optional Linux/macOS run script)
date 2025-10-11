@@ -1,0 +1,71 @@
+#!/bin/bash
+
+=========================================================
+Run Script for AI-Powered Music Genre Classification Project
+This script handles environment setup and running the main logic
+=========================================================
+echo "--- Music Genre Classification Project ---"
+
+--- 1. Check/Setup Virtual Environment ---
+if [ -d "venv" ]; then
+echo "Activating virtual environment..."
+source venv/bin/activate
+else
+echo "Creating virtual environment..."
+python3 -m venv venv
+source venv/bin/activate
+echo "Installing dependencies..."
+pip install -r requirements.txt
+fi
+
+Check for data
+if [ ! -d "data/genres_original" ]; then
+echo "ERROR: GTZAN Dataset not found."
+echo "Please download the GTZAN dataset and place the 'genres_original' folder inside the 'data/' directory."
+exit 1
+fi
+
+--- 2. Feature Extraction (Initial Run Only) ---
+if [ ! -f "data_mfcc.json" ]; then
+echo "--- Starting MFCC Feature Extraction (First Time Setup) ---"
+
+# We run the classifier script, which will automatically call the extraction 
+# function first as defined in genre_classifier.py
+python genre_classifier.py
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Feature extraction failed. Check Librosa installation and data integrity."
+    deactivate
+    exit 1
+fi
+echo "--- Feature Extraction and Model Training Complete ---"
+
+else
+echo "Feature file (data_mfcc.json) found. Skipping extraction."
+
+# If the feature file exists but the model is missing, run the training again
+if [ ! -f "genre_cnn_model.h5" ]; then
+    echo "Model file not found. Re-running classifier for training..."
+    python genre_classifier.py
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Model training failed."
+        deactivate
+        exit 1
+    fi
+    echo "Model training complete."
+fi
+
+fi
+
+--- 3. Run Prediction Demonstration ---
+echo "--- Running Prediction Demo ---"
+if [ -f "predict.py" ] && [ -f "genre_cnn_model.h5" ]; then
+python predict.py
+else
+echo "ERROR: Prediction script (predict.py) or model file (genre_cnn_model.h5) missing."
+fi
+
+--- 4. Cleanup ---
+echo "Script execution finished."
+
+Note: Keeping the environment active for user convenience. Use 'deactivate' to exit.
