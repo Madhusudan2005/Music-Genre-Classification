@@ -53,7 +53,7 @@ Storing extracted features and splitting data.
 
 ⚙️ Setup and Installation
 1. Clone the Repository
-git clone [https://github.com/YOUR_USERNAME/AI-Powered-Music-Genre-Classifier.git](https://github.com/YOUR_USERNAME/AI-Powered-Music-Genre-Classifier.git)
+git clone [https://github.com/YOUR_USERNAME/AI-Powered-Music-Genre-Classifier.git](https://github.com/Madhusudan2005/AI-Powered-Music-Genre-Classifier.git)
 cd AI-Powered-Music-Genre-Classifier
 
 2. Environment Setup
@@ -111,4 +111,4 @@ python predict.py
 
 The script will output the predicted genre and the model's confidence score.
 
-Developed by [Your Name/Intern Name]
+Developed by G.Madhusudan
